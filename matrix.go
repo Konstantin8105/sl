@@ -81,6 +81,15 @@ type Matrix struct {
 	ColPos     []int      // column positions
 }
 
+func (m Matrix) String() string {
+	s := fmt.Sprintf("Type       : %s\n", m.Format)
+	s += fmt.Sprintf("Size       : %d\n", m.Size)
+	s += fmt.Sprintf("Values     : %d\n", m.Values)
+	s += fmt.Sprintf("RowIndexes : %d\n", m.RowIndexes)
+	s += fmt.Sprintf("ColPos     : %d\n", m.ColPos)
+	return s
+}
+
 // New create a new matrix in triplet format.
 func New(s int) *Matrix {
 	return &Matrix{
@@ -188,9 +197,153 @@ func (m *Matrix) TransformTo(mt MatrixType) error {
 		return nil
 	}
 
-	// transformation from triplet matrix format
-	// TODO
+	// transformation from triplet matrix format.
+
+	// Example of transformation
+	//
+	// from:
+	//
+	//	Format      = Tm
+	//	Size        = 3
+	//	Values      = [ 7 1 1 1 3 8 ]
+	//	RowIndexes  = [ 2 0 1 1 1 2 ]
+	//	ColPos      = [ 1 0 1 1 0 2 ]
+	//
+	// Note:
+	//	* Matrix[1,1] in triplet format have 2 values and in result will be summ
+	//	* Acceptable not sorted positions in triplet format
+	//
+	// to:
+	//
+	//	Format      = `mt`
+	//	Size        = 3
+	//	Values      = [ 1 3 1 7 1 8 ]
+	//	RowIndexes  = [ 0 1 1 2 1 2 ]
+	//	ColPos      = [ 0 2 5 6 ]
+	//
+	// Note:
+	//	* compressed on same matrix position
+
+	// sorting by ColPos to:
+	//	Format      = Tm
+	//	Size        = 3
+	//	Values      = [ 1 3 1 7 1 8 ]
+	//	RowIndexes  = [ 0 1 1 2 1 2 ]
+	//	ColPos      = [ 0 0 1 1 1 2 ]
+	sort.Slice(m.ColPos, func(i, j int) bool {
+		if m.ColPos[i] > m.ColPos[j] {
+			// swap
+			m.Values[i], m.Values[j], m.RowIndexes[i], m.RowIndexes[j] =
+				m.Values[j], m.Values[i], m.RowIndexes[j], m.RowIndexes[i]
+			return true
+		}
+		return false
+	})
+
+	compressCol := func(colpos []int) []int {
+		// compress ColPos
+		// from:
+		//	ColPos = [ 0 0 1 1 1 2 ]
+		// to:
+		//	           0 1 2 3   # position
+		//	cp     = [ 0 2 3 1 ]
+		cp := make([]int, m.Size+1)
+		for i := range colpos {
+			cp[colpos[i]+1]++
+		}
+		// cum summ
+		// from:
+		//	           0 1 2 3  # position
+		//	cp     = [ 0 2 3 1 ]
+		//	            |=====|
+		// to:
+		//	cp     = [ 0 2 5 6 ]
+		for i := range cp {
+			if i == 0 {
+				continue
+			}
+			cp[i] += cp[i-1]
+		}
+		return cp
+	}
+	cp := compressCol(m.ColPos)
+
+	// soring by RowIndexes to:
+	//
+	//	cp     = [ 0 2 5 6 ]
+	//
+	//	Format      = Tm
+	//	Size        = 3
+	//	Values      = [ 1 3 1 1 7 8 ]
+	//	RowIndexes  = [ 0 1 1 1 2 2 ]
+	//	ColPos      = [ 0 0 1 1 1 2 ]
+	for k := 1; k < len(cp); k++ {
+		sort.Slice(m.ColPos[cp[k-1]:cp[k]], func(i, j int) bool {
+			if m.RowIndexes[i] > m.RowIndexes[j] {
+				// swap
+				m.Values[cp[k-1]+i], m.Values[cp[k-1]+j] =
+					m.Values[cp[k-1]+j], m.Values[cp[k-1]+i]
+				return true
+			}
+			return false
+		})
+	}
+
+	// summary with same row and columns:
+	//
+	//	Format      = Tm
+	//	Size        = 3
+	//	Values      = [ 1 3 0 2 7 8 ]
+	//	RowIndexes  = [ 0 1 1 1 2 2 ]
+	//	ColPos      = [ 0 0 1 1 1 2 ]
+	for i := range m.Values {
+		if i == 0 {
+			continue
+		}
+		if (m.ColPos[i] != m.ColPos[count]) ||
+			(m.RowIndexes[i] != m.RowIndexes[count]) {
+			continue
+		}
+		m.Values[i] += m.Values[i-1]
+		m.Values[i-1] = 0.0
+	}
+
+	// calculate non-zero values
+	var amountNonzeroValues int
+	for i := range m.Values {
+		if m.Values[i] == 0.0 {
+			continue
+		}
+		amountNonzeroValues++
+	}
+
+	// reallocate memory
+	var (
+		v     = make([]float64, amountNonzeroValues)
+		r     = make([]int, amountNonzeroValues)
+		c     = make([]int, amountNonzeroValues)
+		count int
+	)
+	for i := range m.Values {
+		if m.Values[i] == 0.0 {
+			continue
+		}
+		v[count] = m.Values[i]
+		r[count] = m.RowIndexes[i]
+		c[count] = n.ColPos[i]
+		count++
+	}
+	m.Values, v = v, m.Values
+	m.RowIndexes, r = r, m.RowIndexes
+	m.ColPos = compressCol(c)
+
+	// free memory for reuse memory
+	// Free(v)
+	// Free(r)
+	// Free(c)
 
 	m.Format = mt
 	return nil
 }
+
+// TODO: empty rows
