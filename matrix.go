@@ -1,6 +1,11 @@
 package sl
 
-import "github.com/Konstantin8105/errors"
+import (
+	"fmt"
+	"github.com/Konstantin8105/errors"
+	"math"
+	"sort"
+)
 
 // MatrixType is type of matrix
 type MatrixType uint8
@@ -84,9 +89,9 @@ type Matrix struct {
 func (m Matrix) String() string {
 	s := fmt.Sprintf("Type       : %s\n", m.Format)
 	s += fmt.Sprintf("Size       : %d\n", m.Size)
-	s += fmt.Sprintf("Values     : %d\n", m.Values)
-	s += fmt.Sprintf("RowIndexes : %d\n", m.RowIndexes)
-	s += fmt.Sprintf("ColPos     : %d\n", m.ColPos)
+	s += fmt.Sprintf("Values     : %v\n", m.Values)
+	s += fmt.Sprintf("RowIndexes : %v\n", m.RowIndexes)
+	s += fmt.Sprintf("ColPos     : %v\n", m.ColPos)
 	return s
 }
 
@@ -114,7 +119,7 @@ func (m *Matrix) Put(r, c int, x float64) error {
 	// check input data
 	var et errors.Tree
 	if m == nil {
-		et.Add("Matrix is nil")
+		et.Add(fmt.Errorf("Matrix is nil"))
 	} else {
 		if m.Format != Tm {
 			et.Add(fmt.Errorf("Matrix type is not Triplet: %s", m.Format))
@@ -173,12 +178,12 @@ func (m *Matrix) TransformTo(mt MatrixType) error {
 	// check input data
 	var et errors.Tree
 	if m == nil {
-		et.Add("Matrix is nil")
+		et.Add(fmt.Errorf("Matrix is nil"))
 	} else {
-		switch m {
+		switch mt {
 		case Ssm, Sltm, Tm:
 		default:
-			et.Add("not valid type of matrix: %s", mt)
+			et.Add(fmt.Errorf("not valid type of matrix: %s", mt))
 		}
 	}
 	if et.IsError() {
@@ -231,7 +236,7 @@ func (m *Matrix) TransformTo(mt MatrixType) error {
 	//	RowIndexes  = [ 0 1 1 2 1 2 ]
 	//	ColPos      = [ 0 0 1 1 1 2 ]
 	sort.Slice(m.ColPos, func(i, j int) bool {
-		if m.ColPos[i] > m.ColPos[j] {
+		if m.ColPos[i] < m.ColPos[j] {
 			// swap
 			m.Values[i], m.Values[j], m.RowIndexes[i], m.RowIndexes[j] =
 				m.Values[j], m.Values[i], m.RowIndexes[j], m.RowIndexes[i]
@@ -278,8 +283,8 @@ func (m *Matrix) TransformTo(mt MatrixType) error {
 	//	RowIndexes  = [ 0 1 1 1 2 2 ]
 	//	ColPos      = [ 0 0 1 1 1 2 ]
 	for k := 1; k < len(cp); k++ {
-		sort.Slice(m.ColPos[cp[k-1]:cp[k]], func(i, j int) bool {
-			if m.RowIndexes[i] > m.RowIndexes[j] {
+		sort.Slice(m.RowIndexes[cp[k-1]:cp[k]], func(i, j int) bool {
+			if m.RowIndexes[cp[k-1]+i] < m.RowIndexes[cp[k-1]+j] {
 				// swap
 				m.Values[cp[k-1]+i], m.Values[cp[k-1]+j] =
 					m.Values[cp[k-1]+j], m.Values[cp[k-1]+i]
@@ -300,8 +305,8 @@ func (m *Matrix) TransformTo(mt MatrixType) error {
 		if i == 0 {
 			continue
 		}
-		if (m.ColPos[i] != m.ColPos[count]) ||
-			(m.RowIndexes[i] != m.RowIndexes[count]) {
+		if (m.ColPos[i] != m.ColPos[i-1]) ||
+			(m.RowIndexes[i] != m.RowIndexes[i-1]) {
 			continue
 		}
 		m.Values[i] += m.Values[i-1]
@@ -330,7 +335,7 @@ func (m *Matrix) TransformTo(mt MatrixType) error {
 		}
 		v[count] = m.Values[i]
 		r[count] = m.RowIndexes[i]
-		c[count] = n.ColPos[i]
+		c[count] = m.ColPos[i]
 		count++
 	}
 	m.Values, v = v, m.Values
